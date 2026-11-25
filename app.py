@@ -2,10 +2,17 @@
 import streamlit as st
 import pandas as pd
 
+from datetime import date
+
 from src.database import (
     criar_tabela,
     listar_pesagens_duplas,
-    listar_pesagens_pendentes
+    listar_pesagens_pendentes,
+    criar_controle_buffet,
+    adicionar_reposicao_buffet,
+    listar_controles_buffet,
+    listar_reposicoes_buffet,
+    finalizar_controle_buffet
 )
 
 from src.matching import (
@@ -13,9 +20,11 @@ from src.matching import (
     registrar_prato_completo
 )
 
+from src.calculations import calcular_buffet
+
 
 # ==========================================
-# CONFIGURACOES
+# CONFIGURACAO
 # ==========================================
 
 st.set_page_config(
@@ -26,58 +35,38 @@ st.set_page_config(
 
 criar_tabela()
 
-
-# ==========================================
-# CABECALHO
-# ==========================================
-
 st.title("🥩 Bovinu's Smart Weigh")
 
-st.subheader("Sistema inteligente de pesagem")
-
-st.write(
-    "Monitoramento da quantidade de carne nos pratos "
-    "por meio de duas balanças independentes."
-)
-
-st.info(
-    "A churrasqueira registra somente o peso da carne. "
-    "O caixa registra o peso total do prato. "
-    "O sistema relaciona as informações pela comanda."
+st.caption(
+    "Sistema de controle de pesagem, composição dos pratos "
+    "e desperdício do buffet."
 )
 
 
 # ==========================================
-# MENU PRINCIPAL
+# ABAS DO SISTEMA
 # ==========================================
 
-aba_churrasqueira, aba_caixa, aba_dashboard = st.tabs([
+aba_churrasqueira, aba_caixa, aba_dashboard, aba_buffet = st.tabs([
     "🥩 Churrasqueira",
     "⚖️ Caixa",
-    "📊 Dashboard"
+    "📊 Dashboard",
+    "🥗 Buffet"
 ])
 
 
 # ==========================================
-# TELA 1 - CHURRASQUEIRA
+# ABA 1 - CHURRASQUEIRA
 # ==========================================
 
 with aba_churrasqueira:
 
-    st.header("🥩 Registro de carne")
+    st.header("Registro de carne")
 
     st.write(
-        "Registre o peso exclusivo da carne adicionada ao prato."
-    )
-
-    st.markdown("### Como funciona")
-
-    st.write(
-        "1. Identifique a comanda.\n"
-        "2. Coloque o prato na balança.\n"
-        "3. Execute a tara na balança física.\n"
-        "4. Adicione a carne.\n"
-        "5. Registre o peso apresentado."
+        "Registre o peso da carne adicionada ao prato. "
+        "Utilize o número da comanda para relacionar "
+        "essa pesagem com a pesagem total realizada no caixa."
     )
 
     with st.form("form_churrasqueira"):
@@ -90,7 +79,7 @@ with aba_churrasqueira:
         peso_carne = st.number_input(
             "Peso da carne (gramas)",
             min_value=0.0,
-            value=150.0,
+            value=100.0,
             step=10.0
         )
 
@@ -104,47 +93,40 @@ with aba_churrasqueira:
 
         try:
 
-            id_pesagem = registrar_carne(
+            id_registro = registrar_carne(
                 comanda_carne,
                 peso_carne
             )
 
             st.success(
-                f"Carne registrada! "
-                f"Comanda: {comanda_carne}. "
-                f"ID: {id_pesagem}"
+                f"Carne registrada! Código do registro: {id_registro}"
             )
 
             st.info(
-                "Aguardando o registro do peso total no caixa."
+                f"Comanda {comanda_carne}: "
+                f"{peso_carne:.1f} g de carne aguardando pesagem no caixa."
             )
 
         except ValueError as erro:
 
             st.error(str(erro))
 
-
-    # ==========================================
-    # PESAGENS AGUARDANDO CAIXA
-    # ==========================================
-
     st.divider()
 
-    st.subheader("⏳ Aguardando pesagem no caixa")
+    st.subheader("Pesagens aguardando o caixa")
 
     pendentes = listar_pesagens_pendentes()
 
     if pendentes:
 
-        df_pendentes = pd.DataFrame(
-            pendentes,
-            columns=[
-                "ID",
-                "Comanda",
-                "Carne (g)",
-                "Data/hora"
-            ]
-        )
+        df_pendentes = pd.DataFrame([
+            {
+                "Comanda": item["comanda"],
+                "Peso da carne (g)": item["peso_carne"],
+                "Registro": item["data_churrasqueira"]
+            }
+            for item in pendentes
+        ])
 
         st.dataframe(
             df_pendentes,
@@ -154,30 +136,21 @@ with aba_churrasqueira:
 
     else:
 
-        st.info("Nenhuma pesagem pendente.")
+        st.info("Nenhuma pesagem aguardando o caixa.")
 
 
 # ==========================================
-# TELA 2 - CAIXA
+# ABA 2 - CAIXA
 # ==========================================
 
 with aba_caixa:
 
-    st.header("⚖️ Registro do prato completo")
+    st.header("Registro do peso total")
 
     st.write(
         "Informe a mesma comanda utilizada na churrasqueira "
-        "e registre o peso total do prato."
-    )
-
-    st.markdown("### Como funciona")
-
-    st.write(
-        "1. Identifique a comanda.\n"
-        "2. Coloque o prato completo na balança.\n"
-        "3. Desconte a tara do prato vazio.\n"
-        "4. Registre o peso líquido dos alimentos.\n"
-        "5. O sistema localizará o peso da carne automaticamente."
+        "e registre o peso total líquido do prato, "
+        "com a tara do prato já descontada."
     )
 
     with st.form("form_caixa"):
@@ -194,29 +167,21 @@ with aba_caixa:
             step=10.0
         )
 
-        st.divider()
+        st.subheader("Custos estimados")
 
-        st.subheader("💰 Custos dos alimentos")
+        custo_carne_kg = st.number_input(
+            "Custo da carne por kg (R$)",
+            min_value=0.0,
+            value=20.0,
+            step=1.0
+        )
 
-        col1, col2 = st.columns(2)
-
-        with col1:
-
-            custo_carne_kg = st.number_input(
-                "Custo da carne por kg (R$)",
-                min_value=0.0,
-                value=40.0,
-                step=1.0
-            )
-
-        with col2:
-
-            custo_outros_kg = st.number_input(
-                "Custo dos outros alimentos por kg (R$)",
-                min_value=0.0,
-                value=12.0,
-                step=1.0
-            )
+        custo_outros_kg = st.number_input(
+            "Custo dos outros alimentos por kg (R$)",
+            min_value=0.0,
+            value=8.0,
+            step=1.0
+        )
 
         enviar_caixa = st.form_submit_button(
             "Finalizar pesagem",
@@ -235,50 +200,37 @@ with aba_caixa:
                 custo_outros_kg
             )
 
-            st.success(
-                f"Comanda {resultado['comanda']} finalizada!"
-            )
+            st.success("Pesagem finalizada com sucesso!")
 
-            st.subheader("📊 Composição do prato")
+            st.divider()
+
+            st.subheader("Resultado do prato")
 
             col1, col2, col3 = st.columns(3)
 
             col1.metric(
-                "Peso da carne",
-                f"{resultado['peso_carne']:.0f} g"
+                "Peso total",
+                f"{resultado['peso_total']:.1f} g"
             )
 
             col2.metric(
-                "Outros alimentos",
-                f"{resultado['peso_outros']:.0f} g"
+                "Peso da carne",
+                f"{resultado['peso_carne']:.1f} g"
             )
 
             col3.metric(
-                "Peso total",
-                f"{resultado['peso_total']:.0f} g"
-            )
-
-            st.write("**Participação dos alimentos**")
-
-            col1, col2 = st.columns(2)
-
-            col1.metric(
-                "Carne",
-                f"{resultado['percentual_carne']:.1f}%"
-            )
-
-            col2.metric(
                 "Outros alimentos",
-                f"{resultado['percentual_outros']:.1f}%"
+                f"{resultado['peso_outros']:.1f} g"
             )
 
-            st.progress(
-                resultado["percentual_carne"] / 100
+            st.metric(
+                "Participação da carne",
+                f"{resultado['percentual_carne']:.1f}%"
             )
 
             st.divider()
 
-            st.subheader("💰 Custos estimados")
+            st.subheader("Estimativa de custos")
 
             col1, col2, col3 = st.columns(3)
 
@@ -288,12 +240,12 @@ with aba_caixa:
             )
 
             col2.metric(
-                "Custo dos outros",
+                "Custo dos outros alimentos",
                 f"R$ {resultado['custo_outros']:.2f}"
             )
 
             col3.metric(
-                "Custo total",
+                "Custo total estimado",
                 f"R$ {resultado['custo_total']:.2f}"
             )
 
@@ -303,129 +255,497 @@ with aba_caixa:
 
 
 # ==========================================
-# TELA 3 - DASHBOARD
+# ABA 3 - DASHBOARD
 # ==========================================
 
 with aba_dashboard:
 
-    st.header("📊 Dashboard administrativo")
+    st.header("Dashboard operacional")
 
     registros = listar_pesagens_duplas()
 
     if registros:
 
-        dados = []
+        df = pd.DataFrame(registros)
 
-        for registro in registros:
+        total_pratos = len(df)
 
-            dados.append({
-                "ID": registro[0],
-                "Comanda": registro[1],
-                "Carne (g)": registro[2],
-                "Outros (g)": registro[3],
-                "Total (g)": registro[4],
-                "Carne (%)": registro[5],
-                "Custo carne (R$)": registro[6],
-                "Custo outros (R$)": registro[7],
-                "Custo total (R$)": registro[8],
-                "Data churrasqueira": registro[9],
-                "Data caixa": registro[10]
-            })
+        peso_total_kg = df["peso_total"].sum() / 1000
+        peso_carne_kg = df["peso_carne"].sum() / 1000
+        peso_outros_kg = df["peso_outros"].sum() / 1000
 
-        df = pd.DataFrame(dados)
-
-        st.subheader("📋 Histórico de pesagens")
-
-        st.dataframe(
-            df,
-            use_container_width=True,
-            hide_index=True
+        percentual_medio_carne = (
+            peso_carne_kg / peso_total_kg * 100
+            if peso_total_kg > 0 else 0
         )
 
-
-        # ==========================================
-        # INDICADORES
-        # ==========================================
-
-        st.divider()
-
-        st.subheader("📈 Indicadores gerais")
-
-        quantidade = len(df)
-
-        peso_medio = df["Total (g)"].mean()
-
-        carne_media = df["Carne (g)"].mean()
-
-        percentual_medio = df["Carne (%)"].mean()
-
-        custo_acumulado = df["Custo total (R$)"].sum()
+        custo_total = df["custo_total"].sum()
 
         col1, col2, col3, col4 = st.columns(4)
 
         col1.metric(
-            "Pratos analisados",
-            quantidade
+            "Pratos registrados",
+            total_pratos
         )
 
         col2.metric(
-            "Peso médio",
-            f"{peso_medio:.1f} g"
+            "Peso total",
+            f"{peso_total_kg:.2f} kg"
         )
 
         col3.metric(
-            "Média de carne",
-            f"{carne_media:.1f} g"
+            "Carne utilizada",
+            f"{peso_carne_kg:.2f} kg"
         )
 
         col4.metric(
-            "Percentual médio de carne",
-            f"{percentual_medio:.1f}%"
+            "Participação da carne",
+            f"{percentual_medio_carne:.1f}%"
         )
 
         st.metric(
-            "Custo estimado acumulado",
-            f"R$ {custo_acumulado:.2f}"
+            "Custo estimado total",
+            f"R$ {custo_total:.2f}"
         )
-
-
-        # ==========================================
-        # GRAFICOS
-        # ==========================================
 
         st.divider()
 
-        st.subheader("🥩 Participação da carne por comanda")
+        st.subheader("Composição dos pratos")
 
-        grafico_carne = df.set_index("Comanda")[
-            ["Carne (%)"]
+        df_composicao = pd.DataFrame({
+            "Categoria": ["Carne", "Outros alimentos"],
+            "Peso (kg)": [peso_carne_kg, peso_outros_kg]
+        })
+
+        st.bar_chart(
+            df_composicao.set_index("Categoria")
+        )
+
+        st.divider()
+
+        st.subheader("Histórico de pesagens")
+
+        colunas_historico = [
+            "id",
+            "comanda",
+            "peso_carne",
+            "peso_outros",
+            "peso_total",
+            "percentual_carne",
+            "custo_carne",
+            "custo_outros",
+            "custo_total",
+            "data_caixa"
         ]
 
-        st.bar_chart(grafico_carne)
+        df_historico = df[colunas_historico].copy()
 
-        st.subheader("💰 Comparação de custos")
-
-        grafico_custos = df.set_index("Comanda")[
-            [
-                "Custo carne (R$)",
-                "Custo outros (R$)"
-            ]
+        df_historico.columns = [
+            "ID",
+            "Comanda",
+            "Carne (g)",
+            "Outros alimentos (g)",
+            "Total (g)",
+            "Carne (%)",
+            "Custo carne (R$)",
+            "Custo outros (R$)",
+            "Custo total (R$)",
+            "Data/hora"
         ]
 
-        st.bar_chart(grafico_custos)
-
-        st.subheader("📉 Custo estimado por prato")
-
-        grafico_total = df.set_index("Comanda")[
-            ["Custo total (R$)"]
-        ]
-
-        st.line_chart(grafico_total)
+        st.dataframe(
+            df_historico,
+            use_container_width=True,
+            hide_index=True
+        )
 
     else:
 
         st.info(
-            "Ainda não existem pratos concluídos. "
-            "Registre uma pesagem na churrasqueira e depois "
-            "finalize a mesma comanda no caixa."
+            "Ainda não existem pesagens concluídas "
+            "para apresentar no Dashboard."
+        )
+
+
+# ==========================================
+# ABA 4 - BUFFET
+# ==========================================
+
+with aba_buffet:
+
+    st.header("🥗 Controle diário do buffet")
+
+    st.write(
+        "Registre os alimentos colocados no buffet, "
+        "as reposições realizadas e o resultado no fechamento."
+    )
+
+    data_buffet = st.date_input(
+        "Data de operação",
+        value=date.today(),
+        key="data_buffet"
+    )
+
+    data_texto = data_buffet.isoformat()
+
+    st.divider()
+
+    # ------------------------------------------
+    # ABERTURA
+    # ------------------------------------------
+
+    st.subheader("1. Abertura do buffet")
+
+    with st.form("form_abertura_buffet"):
+
+        alimento = st.text_input(
+            "Nome do alimento",
+            placeholder="Exemplo: Arroz"
+        )
+
+        peso_inicial = st.number_input(
+            "Quantidade inicial (kg)",
+            min_value=0.0,
+            value=5.0,
+            step=0.5
+        )
+
+        cadastrar_alimento = st.form_submit_button(
+            "Cadastrar alimento",
+            type="primary",
+            use_container_width=True
+        )
+
+    if cadastrar_alimento:
+
+        try:
+
+            criar_controle_buffet(
+                data_texto,
+                alimento,
+                peso_inicial
+            )
+
+            st.success(
+                f"{alimento} cadastrado no buffet!"
+            )
+
+            st.rerun()
+
+        except ValueError as erro:
+
+            st.error(str(erro))
+
+    registros_buffet = listar_controles_buffet(data_texto)
+
+    abertos = [
+        registro for registro in registros_buffet
+        if registro["status"] == "aberto"
+    ]
+
+    fechados = [
+        registro for registro in registros_buffet
+        if registro["status"] == "fechado"
+    ]
+
+    # ------------------------------------------
+    # REPOSICOES
+    # ------------------------------------------
+
+    st.divider()
+
+    st.subheader("2. Registrar reposições")
+
+    if abertos:
+
+        opcoes_reposicao = {
+            f"{registro['alimento']} — Controle #{registro['id']}":
+                registro["id"]
+            for registro in abertos
+        }
+
+        with st.form("form_reposicao_buffet"):
+
+            alimento_reposicao = st.selectbox(
+                "Selecione o alimento",
+                list(opcoes_reposicao.keys())
+            )
+
+            quantidade_reposicao = st.number_input(
+                "Quantidade reposta (kg)",
+                min_value=0.0,
+                value=1.0,
+                step=0.5
+            )
+
+            registrar_reposicao = st.form_submit_button(
+                "Registrar reposição",
+                use_container_width=True
+            )
+
+        if registrar_reposicao:
+
+            try:
+
+                adicionar_reposicao_buffet(
+                    opcoes_reposicao[alimento_reposicao],
+                    quantidade_reposicao
+                )
+
+                st.success("Reposição registrada!")
+
+                st.rerun()
+
+            except ValueError as erro:
+
+                st.error(str(erro))
+
+    else:
+
+        st.info(
+            "Não existem alimentos abertos para receber reposições."
+        )
+
+    # ------------------------------------------
+    # FECHAMENTO
+    # ------------------------------------------
+
+    st.divider()
+
+    st.subheader("3. Fechamento do buffet")
+
+    if abertos:
+
+        opcoes_fechamento = {
+            f"{registro['alimento']} — Controle #{registro['id']}":
+                registro["id"]
+            for registro in abertos
+        }
+
+        with st.form("form_fechamento_buffet"):
+
+            alimento_fechamento = st.selectbox(
+                "Selecione o alimento para finalizar",
+                list(opcoes_fechamento.keys())
+            )
+
+            sobra_aproveitavel = st.number_input(
+                "Sobra aproveitável (kg)",
+                min_value=0.0,
+                value=0.0,
+                step=0.5
+            )
+
+            descarte = st.number_input(
+                "Quantidade descartada (kg)",
+                min_value=0.0,
+                value=0.0,
+                step=0.5
+            )
+
+            fechar_alimento = st.form_submit_button(
+                "Finalizar alimento",
+                type="primary",
+                use_container_width=True
+            )
+
+        if fechar_alimento:
+
+            try:
+
+                finalizar_controle_buffet(
+                    opcoes_fechamento[alimento_fechamento],
+                    sobra_aproveitavel,
+                    descarte
+                )
+
+                st.success(
+                    "Controle do alimento finalizado!"
+                )
+
+                st.rerun()
+
+            except ValueError as erro:
+
+                st.error(str(erro))
+
+    else:
+
+        st.info(
+            "Todos os alimentos cadastrados já foram finalizados "
+            "ou ainda não existem alimentos para fechar."
+        )
+
+    # ------------------------------------------
+    # HISTORICO E RELATORIO
+    # ------------------------------------------
+
+    st.divider()
+
+    st.subheader("4. Histórico e relatório do buffet")
+
+    if registros_buffet:
+
+        dados_relatorio = []
+
+        for registro in registros_buffet:
+
+            id_controle = registro["id"]
+            nome = registro["alimento"]
+            inicial = registro["peso_inicial"]
+            total_reposicoes = registro["total_reposicoes"]
+            sobra = registro["sobra_aproveitavel"]
+            descarte_atual = registro["descarte"]
+            status = registro["status"]
+
+            disponivel = inicial + total_reposicoes
+
+            if status == "fechado":
+
+                resultado = calcular_buffet(
+                    inicial,
+                    total_reposicoes,
+                    sobra,
+                    descarte_atual
+                )
+
+                consumido = resultado["consumido"]
+                percentual = resultado["percentual_desperdicio"]
+
+            else:
+
+                consumido = None
+                percentual = None
+
+            dados_relatorio.append({
+                "ID": id_controle,
+                "Alimento": nome,
+                "Inicial (kg)": inicial,
+                "Reposições (kg)": total_reposicoes,
+                "Disponível (kg)": disponivel,
+                "Consumo estimado (kg)": consumido,
+                "Sobra aproveitável (kg)": sobra,
+                "Descarte (kg)": descarte_atual,
+                "Desperdício (%)": percentual,
+                "Status": status
+            })
+
+        df_buffet = pd.DataFrame(dados_relatorio)
+
+        st.dataframe(
+            df_buffet,
+            use_container_width=True,
+            hide_index=True
+        )
+
+        # Histórico individual de reposições.
+
+        st.subheader("Histórico individual de reposições")
+
+        for registro in registros_buffet:
+
+            with st.expander(
+                f"{registro['alimento']} — Controle #{registro['id']}"
+            ):
+
+                historico_reposicoes = listar_reposicoes_buffet(
+                    registro["id"]
+                )
+
+                if historico_reposicoes:
+
+                    df_reposicoes = pd.DataFrame([
+                        {
+                            "Quantidade (kg)": item["quantidade"],
+                            "Data/hora": item["data_hora"]
+                        }
+                        for item in historico_reposicoes
+                    ])
+
+                    st.dataframe(
+                        df_reposicoes,
+                        use_container_width=True,
+                        hide_index=True
+                    )
+
+                else:
+
+                    st.write("Nenhuma reposição registrada.")
+
+        # Indicadores somente dos alimentos fechados.
+
+        if fechados:
+
+            df_fechados = df_buffet[
+                df_buffet["Status"] == "fechado"
+            ]
+
+            total_disponivel = df_fechados[
+                "Disponível (kg)"
+            ].sum()
+
+            total_consumido = df_fechados[
+                "Consumo estimado (kg)"
+            ].sum()
+
+            total_descarte = df_fechados[
+                "Descarte (kg)"
+            ].sum()
+
+            total_sobra = df_fechados[
+                "Sobra aproveitável (kg)"
+            ].sum()
+
+            percentual_geral = (
+                total_descarte / total_disponivel * 100
+                if total_disponivel > 0 else 0
+            )
+
+            st.divider()
+
+            st.subheader("Indicadores do buffet")
+
+            col1, col2, col3, col4 = st.columns(4)
+
+            col1.metric(
+                "Disponibilizado",
+                f"{total_disponivel:.2f} kg"
+            )
+
+            col2.metric(
+                "Consumo estimado",
+                f"{total_consumido:.2f} kg"
+            )
+
+            col3.metric(
+                "Descarte",
+                f"{total_descarte:.2f} kg"
+            )
+
+            col4.metric(
+                "Sobra aproveitável",
+                f"{total_sobra:.2f} kg"
+            )
+
+            st.metric(
+                "Percentual de desperdício",
+                f"{percentual_geral:.2f}%"
+            )
+
+            st.subheader("Consumo e desperdício por alimento")
+
+            grafico_buffet = df_fechados.set_index("Alimento")[
+                [
+                    "Consumo estimado (kg)",
+                    "Sobra aproveitável (kg)",
+                    "Descarte (kg)"
+                ]
+            ]
+
+            st.bar_chart(grafico_buffet)
+
+    else:
+
+        st.info(
+            "Nenhum alimento cadastrado para essa data."
         )

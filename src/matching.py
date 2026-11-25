@@ -1,39 +1,18 @@
 
 from src.database import (
-    salvar_peso_carne,
-    buscar_pesagem_pendente,
-    finalizar_pesagem
+    salvar_pesagem_carne,
+    finalizar_pesagem_caixa
 )
 
-from src.calculations import (
-    calcular_pesagem,
-    calcular_custos
-)
+from src.calculations import calcular_pesagem_dupla
 
-
-# ==========================================
-# REGISTRO DA CHURRASQUEIRA
-# ==========================================
 
 def registrar_carne(comanda, peso_carne):
-
-    comanda = str(comanda).strip()
-
-    if not comanda:
-        raise ValueError("Informe o número da comanda.")
-
-    if peso_carne <= 0:
-        raise ValueError("O peso da carne deve ser maior que zero.")
-
-    return salvar_peso_carne(
+    return salvar_pesagem_carne(
         comanda,
         peso_carne
     )
 
-
-# ==========================================
-# REGISTRO DO CAIXA
-# ==========================================
 
 def registrar_prato_completo(
     comanda,
@@ -41,70 +20,53 @@ def registrar_prato_completo(
     custo_carne_kg,
     custo_outros_kg
 ):
-
-    comanda = str(comanda).strip()
-
-    if not comanda:
-        raise ValueError("Informe o número da comanda.")
-
     if peso_total <= 0:
-        raise ValueError("O peso total deve ser maior que zero.")
-
-    if custo_carne_kg < 0 or custo_outros_kg < 0:
-        raise ValueError("Os custos não podem ser negativos.")
-
-    # Localiza o peso registrado na churrasqueira.
-    registro = buscar_pesagem_pendente(comanda)
-
-    if registro is None:
-
         raise ValueError(
-            "Nenhuma pesagem pendente encontrada para essa comanda."
+            "O peso total deve ser maior que zero."
         )
 
-    id_pesagem = registro[0]
-    peso_carne = registro[2]
+    if custo_carne_kg < 0 or custo_outros_kg < 0:
+        raise ValueError(
+            "Os custos por kg não podem ser negativos."
+        )
 
-    # Calcula a composição do prato.
-    resultado = calcular_pesagem(
-        peso_carne,
-        peso_total
+    # Localiza a pesagem de carne pendente.
+    from src.database import listar_pesagens_pendentes
+
+    comanda_texto = str(comanda).strip()
+
+    pendentes = listar_pesagens_pendentes()
+
+    pesagem = next(
+        (
+            item for item in pendentes
+            if item["comanda"] == comanda_texto
+        ),
+        None
     )
 
-    peso_outros = resultado["peso_outros"]
+    if pesagem is None:
+        raise ValueError(
+            "Não existe pesagem de carne aguardando "
+            "para essa comanda."
+        )
 
-    percentual_carne = resultado["percentual_carne"]
-
-    # Calcula os custos.
-    custos = calcular_custos(
-        peso_carne,
-        peso_outros,
-        custo_carne_kg,
-        custo_outros_kg
-    )
-
-    # Finaliza o registro no banco.
-    finalizar_pesagem(
-        id_pesagem,
+    resultado = calcular_pesagem_dupla(
+        pesagem["peso_carne"],
         peso_total,
-        peso_outros,
-        percentual_carne,
-        custos["custo_carne"],
-        custos["custo_outros"],
-        custos["custo_total"],
         custo_carne_kg,
         custo_outros_kg
+    )
+
+    id_pesagem = finalizar_pesagem_caixa(
+        comanda_texto,
+        peso_total,
+        custo_carne_kg,
+        custo_outros_kg,
+        resultado
     )
 
     return {
         "id": id_pesagem,
-        "comanda": comanda,
-        "peso_carne": peso_carne,
-        "peso_outros": peso_outros,
-        "peso_total": peso_total,
-        "percentual_carne": percentual_carne,
-        "percentual_outros": resultado["percentual_outros"],
-        "custo_carne": custos["custo_carne"],
-        "custo_outros": custos["custo_outros"],
-        "custo_total": custos["custo_total"]
+        **resultado
     }
