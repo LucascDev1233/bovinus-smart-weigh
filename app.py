@@ -18,6 +18,16 @@ st.set_page_config(
 
 criar_tabela()
 
+# Estados da pesagem
+if "etapa_pesagem" not in st.session_state:
+    st.session_state.etapa_pesagem = 1
+
+if "peso_outros" not in st.session_state:
+    st.session_state.peso_outros = 0.0
+
+if "ultima_pesagem" not in st.session_state:
+    st.session_state.ultima_pesagem = None
+
 
 # ==========================================
 # CABECALHO
@@ -33,12 +43,33 @@ st.write(
 )
 
 st.info(
-    "simulação da leitura da balança. "
-    "Os pesos são informados manualmente para representar "
-    "a operação que futuramente será automatizada."
+    "Simulação da leitura da balança. Os pesos são informados "
+    "manualmente para representar a operação que futuramente "
+    "será automatizada."
 )
 
 st.divider()
+
+
+# ==========================================
+# RESULTADO DA ULTIMA PESAGEM
+# ==========================================
+
+if st.session_state.ultima_pesagem is not None:
+
+    ultima = st.session_state.ultima_pesagem
+
+    st.success(
+        f"Pesagem registrada com sucesso! ID: {ultima['id']}"
+    )
+
+    col1, col2, col3 = st.columns(3)
+
+    col1.metric("Peso da carne", f"{ultima['carne']:.0f} g")
+    col2.metric("Participação da carne", f"{ultima['percentual']:.1f}%")
+    col3.metric("Custo estimado", f"R$ {ultima['custo']:.2f}")
+
+    st.divider()
 
 
 # ==========================================
@@ -48,95 +79,159 @@ st.divider()
 st.header("⚖️ Pesagem na churrasqueira")
 
 st.write(
-    "Informe o peso do prato antes e depois da adição das carnes."
+    "Realize a pesagem em duas etapas: primeiro os alimentos "
+    "sem carne e depois a carne, utilizando a função TARA."
 )
 
-col1, col2 = st.columns(2)
 
-with col1:
+# ==========================================
+# ETAPA 1 - PESO INICIAL
+# ==========================================
+
+if st.session_state.etapa_pesagem == 1:
+
+    st.subheader("1️⃣ Pesagem inicial — Prato com alimentos")
+
+    st.write(
+        "Coloque o prato com arroz, feijão, salada e outros "
+        "alimentos na balança, sem adicionar a carne."
+    )
+
     peso_inicial = st.number_input(
-        "Peso inicial do prato (gramas)",
+        "Peso dos alimentos antes da carne (gramas)",
         min_value=0.0,
         value=300.0,
         step=10.0,
-        help="Peso dos alimentos servidos antes de chegar à churrasqueira."
+        key="input_peso_inicial"
     )
 
-with col2:
-    peso_final = st.number_input(
-        "Peso final do prato (gramas)",
-        min_value=0.0,
-        value=500.0,
-        step=10.0,
-        help="Peso do prato depois que as carnes foram adicionadas."
-    )
+    if st.button(
+        "Registrar peso inicial",
+        type="primary",
+        use_container_width=True
+    ):
+
+        if peso_inicial <= 0:
+            st.error("Informe um peso inicial maior que zero.")
+
+        else:
+            st.session_state.peso_outros = peso_inicial
+            st.session_state.etapa_pesagem = 2
+            st.rerun()
 
 
 # ==========================================
-# CALCULO DO PESO DA CARNE
+# ETAPA 2 - TARA
 # ==========================================
 
-peso_outros = peso_inicial
-peso_carne = peso_final - peso_inicial
+elif st.session_state.etapa_pesagem == 2:
 
-st.divider()
-
-st.subheader("📊 Resultado da captura")
-
-if peso_final < peso_inicial:
-
-    st.error(
-        "O peso final não pode ser menor que o peso inicial. "
-        "Verifique os valores informados."
-    )
-
-elif peso_final == peso_inicial:
-
-    st.warning(
-        "Nenhum peso adicional foi identificado. "
-        "Informe o peso depois de adicionar as carnes."
-    )
-
-else:
-
-    col1, col2, col3 = st.columns(3)
-
-    col1.metric(
-        "Outros alimentos",
-        f"{peso_outros:.0f} g"
-    )
-
-    col2.metric(
-        "Carne identificada",
-        f"{peso_carne:.0f} g"
-    )
-
-    col3.metric(
-        "Peso total do prato",
-        f"{peso_final:.0f} g"
-    )
-
-    percentual_carne = (
-        peso_carne / peso_final
-    ) * 100
-
-    st.write("**Composição do prato**")
-
-    st.progress(
-        min(max(percentual_carne / 100, 0.0), 1.0)
-    )
+    st.subheader("2️⃣ Tara — Zerar a balança")
 
     col1, col2 = st.columns(2)
 
     col1.metric(
-        "Participação da carne",
-        f"{percentual_carne:.1f}%"
+        "Peso registrado anteriormente",
+        f"{st.session_state.peso_outros:.0f} g"
     )
 
     col2.metric(
-        "Participação dos outros alimentos",
-        f"{100 - percentual_carne:.1f}%"
+        "Leitura após a tara",
+        "0 g"
     )
+
+    st.info(
+        "O peso inicial já foi armazenado. Agora, simule o botão "
+        "TARA da balança para zerar a leitura antes de adicionar "
+        "a carne."
+    )
+
+    if st.button(
+        "⚖️ TARAR BALANÇA",
+        type="primary",
+        use_container_width=True
+    ):
+
+        st.session_state.etapa_pesagem = 3
+        st.rerun()
+
+
+# ==========================================
+# ETAPA 3 - PESO DA CARNE
+# ==========================================
+
+elif st.session_state.etapa_pesagem == 3:
+
+    st.subheader("3️⃣ Pesagem da carne")
+
+    st.success(
+        "Balança zerada! Adicione a carne ao prato."
+    )
+
+    st.metric(
+        "Leitura da balança após a tara",
+        "0 g"
+    )
+
+    peso_carne = st.number_input(
+        "Peso da carne adicionada (gramas)",
+        min_value=0.0,
+        value=150.0,
+        step=10.0,
+        key="input_peso_carne"
+    )
+
+    st.divider()
+
+    st.subheader("📊 Resultado da captura")
+
+    peso_outros = st.session_state.peso_outros
+
+    peso_total = peso_outros + peso_carne
+
+    if peso_carne > 0:
+
+        percentual_carne = (peso_carne / peso_total) * 100
+
+        col1, col2, col3 = st.columns(3)
+
+        col1.metric(
+            "Outros alimentos",
+            f"{peso_outros:.0f} g"
+        )
+
+        col2.metric(
+            "Carne identificada",
+            f"{peso_carne:.0f} g"
+        )
+
+        col3.metric(
+            "Peso total do prato",
+            f"{peso_total:.0f} g"
+        )
+
+        st.write("**Composição do prato**")
+
+        st.progress(percentual_carne / 100)
+
+        col1, col2 = st.columns(2)
+
+        col1.metric(
+            "Participação da carne",
+            f"{percentual_carne:.1f}%"
+        )
+
+        col2.metric(
+            "Participação dos outros alimentos",
+            f"{100 - percentual_carne:.1f}%"
+        )
+
+    else:
+
+        st.warning(
+            "Adicione a carne e informe seu peso para visualizar "
+            "a composição do prato."
+        )
 
 
     # ==========================================
@@ -150,6 +245,7 @@ else:
     col1, col2 = st.columns(2)
 
     with col1:
+
         custo_carne_kg = st.number_input(
             "Custo da carne por kg (R$)",
             min_value=0.0,
@@ -158,6 +254,7 @@ else:
         )
 
     with col2:
+
         custo_outros_kg = st.number_input(
             "Custo dos outros alimentos por kg (R$)",
             min_value=0.0,
@@ -167,7 +264,7 @@ else:
 
 
     # ==========================================
-    # IDENTIFICACAO OPCIONAL DO CORTE
+    # IDENTIFICACAO DO CORTE
     # ==========================================
 
     st.subheader("🥩 Identificação da carne")
@@ -187,13 +284,13 @@ else:
     )
 
     st.caption(
-        "A identificação do corte é opcional nesta versão. "
-        "O custo ainda utiliza o valor médio por kg informado acima."
+        "A identificação do corte é opcional. O custo utiliza "
+        "o valor médio por kg informado acima."
     )
 
 
     # ==========================================
-    # CALCULAR E SALVAR PESAGEM
+    # REGISTRAR PESAGEM
     # ==========================================
 
     if st.button(
@@ -202,71 +299,71 @@ else:
         use_container_width=True
     ):
 
-        resultado = calcular_pesagem(
-            peso_carne,
-            peso_outros
-        )
+        if peso_carne <= 0:
 
-        custos = calcular_custos(
-            peso_carne,
-            peso_outros,
-            custo_carne_kg,
-            custo_outros_kg
-        )
+            st.error("Informe um peso de carne maior que zero.")
 
-        peso_total = resultado["peso_total"]
-        percentual_carne = resultado["percentual_carne"]
+        else:
 
-        custo_carne = custos["custo_carne"]
-        custo_outros = custos["custo_outros"]
-        custo_total = custos["custo_total"]
+            resultado = calcular_pesagem(
+                peso_carne,
+                peso_outros
+            )
 
-        id_pesagem = salvar_pesagem(
-            peso_carne,
-            peso_outros,
-            peso_total,
-            percentual_carne,
-            custo_carne,
-            custo_outros,
-            custo_total
-        )
+            custos = calcular_custos(
+                peso_carne,
+                peso_outros,
+                custo_carne_kg,
+                custo_outros_kg
+            )
 
-        st.success(
-            f"Pesagem registrada com sucesso! ID: {id_pesagem}"
-        )
+            peso_total = resultado["peso_total"]
 
-        st.subheader("Resumo da pesagem registrada")
+            percentual_carne = resultado["percentual_carne"]
 
-        col1, col2, col3 = st.columns(3)
+            custo_carne = custos["custo_carne"]
 
-        col1.metric(
-            "Peso da carne",
-            f"{peso_carne:.0f} g"
-        )
+            custo_outros = custos["custo_outros"]
 
-        col2.metric(
-            "Percentual de carne",
-            f"{percentual_carne:.1f}%"
-        )
+            custo_total = custos["custo_total"]
 
-        col3.metric(
-            "Custo estimado total",
-            f"R$ {custo_total:.2f}"
-        )
+            id_pesagem = salvar_pesagem(
+                peso_carne,
+                peso_outros,
+                peso_total,
+                percentual_carne,
+                custo_carne,
+                custo_outros,
+                custo_total
+            )
 
-        st.write("**Detalhamento dos custos**")
+            st.session_state.ultima_pesagem = {
+                "id": id_pesagem,
+                "carne": peso_carne,
+                "percentual": percentual_carne,
+                "custo": custo_total
+            }
 
-        col1, col2 = st.columns(2)
+            # Reinicia o processo para o próximo prato
+            st.session_state.etapa_pesagem = 1
+            st.session_state.peso_outros = 0.0
 
-        col1.metric(
-            "Custo da carne",
-            f"R$ {custo_carne:.2f}"
-        )
+            st.rerun()
 
-        col2.metric(
-            "Custo dos outros alimentos",
-            f"R$ {custo_outros:.2f}"
-        )
+
+    # ==========================================
+    # CANCELAR PESAGEM
+    # ==========================================
+
+    if st.button(
+        "Cancelar e iniciar novamente",
+        use_container_width=True
+    ):
+
+        st.session_state.etapa_pesagem = 1
+        st.session_state.peso_outros = 0.0
+
+        st.rerun()
 
 
 # ==========================================
@@ -393,7 +490,6 @@ if registros:
     ]
 
     st.line_chart(grafico_total)
-
 
 else:
 
