@@ -33,7 +33,7 @@ st.write(
 )
 
 st.info(
-    "Esta versão simula a leitura da balança. "
+    "simulação da leitura da balança. "
     "Os pesos são informados manualmente para representar "
     "a operação que futuramente será automatizada."
 )
