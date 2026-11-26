@@ -54,11 +54,11 @@ consumidas pelos clientes, permitindo identificar padrões de consumo e gerar
 
 ## 🎥 Vídeo de apresentação
 
-[Assistir à demonstração do projeto](COLE_AQUI_O_LINK_DO_VIDEO)
+[Assistir à demonstração do projeto](https://youtu.be/_C43TV8-GYY)
 
 ## 📊 Apresentação
 
-[Visualizar os slides do projeto](docs/apresentacao.pdf)
+[Visualizar os slides do projeto](docs/apresentacao-bovinus-smart-weith.pdf)
 
 ## 🏗️ Arquitetura e desenvolvimento
 
